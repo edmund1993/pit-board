@@ -608,7 +608,12 @@ function tyres(){
       <label class="lbl">Style<br><select id="cs">${T_STYLE.map(s=>`<option ${s==="Neutral"?"selected":""}>${s}</option>`).join("")}</select></label>
       <label class="lbl">Tyre % before<br><input class="f" type="number" id="cb" value="100" style="width:70px"></label>
       <label class="lbl">after<br><input class="f" type="number" id="ca" style="width:70px"></label></div>
-    <div class="flex" style="margin-top:8px"><button class="btn pri" id="csave">Save for ${esc(tr)}</button>${(S.tyreCal||{})[tr]?`<button class="btn" id="creset">Use built-in value</button>`:""}<span id="cmsg" class="muted"></span></div></div>`;
+    <div class="flex" style="margin-top:8px"><button class="btn pri" id="csave">Save for ${esc(tr)}</button>${(S.tyreCal||{})[tr]?`<button class="btn" id="creset">Use built-in value</button>`:""}<span id="cmsg" class="muted"></span></div>
+    ${((S.tyreCal||{})[tr]||{}).log?`<p class="muted" style="font-size:12px">${S.tyreCal[tr].log.length} lap${S.tyreCal[tr].log.length>1?"s":""} saved for ${esc(tr)} — the latest one is used.</p>`:""}
+    <h3>Share your tyre data</h3>
+    <p class="muted" style="margin-top:0">Copies only your tyre calibrations (no cards or levels) as a short code you can send to the Pit Board maker.</p>
+    <div class="flex"><button class="btn" id="tcp">Copy tyre data</button><span class="muted" style="font-size:12px">${tyreCount()} track${tyreCount()===1?"":"s"} calibrated</span></div>
+    <textarea id="tta" readonly style="display:none;margin-top:8px"></textarea></div>`;
   const re=()=>{save();tyres();};
   $("#ttr").onchange=e=>{u.track=e.target.value;re();};
   $("#tlaps").onchange=e=>{u.laps=u.laps||{};u.laps[tr]=Math.max(1,Math.min(20,+e.target.value||d.laps));re();};
@@ -618,9 +623,16 @@ function tyres(){
   $("#csave").onclick=()=>{const c=BY_ID[$("#cd").value],comp=$("#cc").value,st=$("#cs").value,b=+$("#cb").value,a=+$("#ca").value;
     if(!(b>a)||a<0||b>100){$("#cmsg").textContent="Enter before and after (after must be lower).";return;}
     const r=d.r[comp][T_STYLE.indexOf(st)];const k=(b-a)/100*r/tmFactor(drvTM(c));
-    S.tyreCal=S.tyreCal||{};S.tyreCal[tr]={k:+k.toFixed(3),date:new Date().toISOString().slice(0,10)};toast(`${tr}: figure ${k.toFixed(2)} saved`);re();};
+    const dt=new Date().toLocaleDateString("en-CA"),old=(S.tyreCal||{})[tr]||{};
+    const ent={k:+k.toFixed(3),date:dt,drv:c.n,card:c.g,lvl:(S.cards[c.id]||{}).l||0,tm:drvTM(c),comp,style:st,before:b,after:a,range:r};
+    S.tyreCal=S.tyreCal||{};S.tyreCal[tr]={k:ent.k,date:dt,log:[...(old.log||[]),ent].slice(-20)};toast(`${tr}: figure ${k.toFixed(2)} saved`);re();};
   const cr=$("#creset");if(cr)cr.onclick=()=>{delete S.tyreCal[tr];re();};
+  $("#tcp").onclick=()=>copyTyres($("#tta"));
 }
+function tyreCount(){return Object.keys(S.tyreCal||{}).length;}
+function tyreCode(){return JSON.stringify({app:"pitboard-tyres",v:1,date:new Date().toLocaleDateString("en-CA"),cal:S.tyreCal||{}});}
+async function copyTyres(ta){if(!tyreCount()){toast("No tyre calibrations saved yet");return;}const code=tyreCode();
+  try{await navigator.clipboard.writeText(code);toast("Tyre data copied");}catch(e){ta.style.display="";ta.value=code;ta.select();toast("Select and copy the text below");}}
 
 /* ---------- boosts ---------- */
 let bq="";
@@ -658,7 +670,7 @@ function season(){
 function backup(){
   $("#main").innerHTML=`<div class="panel"><h2>Backup</h2>
   <p class="muted" style="margin-top:0">Your data is saved in this browser only. To move it to another phone or browser, copy the backup code here and paste it there.</p>
-  <div class="flex"><button class="btn pri" id="cp">Copy backup code</button></div>
+  <div class="flex"><button class="btn pri" id="cp">Copy backup code</button><button class="btn" id="tcp2">Copy tyre data only</button></div>
   <h3>Restore</h3><textarea id="ta" placeholder="Paste a backup code here…"></textarea>
   <div class="flex" style="margin-top:8px"><button class="btn" id="im">Restore from code</button><label class="btn">Load .json file<input type="file" id="fi" accept=".json,application/json" hidden></label></div>
   ${Object.keys(SEED.cards).length?`<h3>Your resource sheet</h3>
@@ -669,8 +681,9 @@ function backup(){
     <p style="margin-top:0">Pit Board was inspired by <a href="https://rmlrace.github.io/pitwall-companion/" style="color:var(--accent2)">PitWall Companion</a> — the original companion app, and the first source of the track key stats.</p>
     <p>Thanks to the <b>F1 Clash 2026 Resource Sheet v1.0 by TR The Flash</b> — the starting card levels, the team-score formula and many layout ideas came from it.</p></div>`;
   $("#cp").onclick=async()=>{const code=JSON.stringify({app:"pitboard",v:1,data:S});try{await navigator.clipboard.writeText(code);toast("Backup copied");}catch(e){$("#ta").value=code;$("#ta").select();toast("Select and copy the text below");}};
-  const restore=txt=>{try{let o=JSON.parse(txt);o=o.data||o;if(!o.cards)throw 0;S=merge(structuredClone(DEF_STATE),o);S.ui.tab="data";save();buildCards();toast("Restored");render();}catch(e){toast("That code didn't work");}};
+  const restore=txt=>{try{let o=JSON.parse(txt);if(o&&o.app==="pitboard-tyres"){toast("That's a tyre data code, not a backup — nothing was changed");return;}o=o.data||o;if(!o.cards)throw 0;S=merge(structuredClone(DEF_STATE),o);S.ui.tab="data";save();buildCards();toast("Restored");render();}catch(e){toast("That code didn't work");}};
   $("#im").onclick=()=>restore($("#ta").value);
+  $("#tcp2").onclick=()=>copyTyres($("#ta"));
   $("#fi").onchange=e=>{const f=e.target.files[0];if(f)f.text().then(restore);};
   if($("#rl"))$("#rl").onclick=e=>{const b=e.target;if(!b.dataset.sure){b.dataset.sure=1;b.textContent="Tap again to replace your levels";return;}seeded(S);save();toast("Levels reloaded");render();};
   $("#rs").onclick=()=>{$("#rsc").innerHTML=` <button class="btn warn" id="rs2">Yes, erase everything</button>`;$("#rs2").onclick=()=>{S=structuredClone(DEF_STATE);S.dataV=DATA_V;S.ui.tab="data";save();buildCards();toast("Reset");render();};};
